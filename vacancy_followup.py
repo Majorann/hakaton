@@ -2,10 +2,9 @@ import json
 from time import time
 
 from vacancy_analysis import analyze
-from vacancy_report import (
-    ReportError, content_hash, load_portal_vacancy, ollama_chat, portal_company_code,
-    report_row, write_report,
-)
+from vacancy_fields import ReportError
+from vacancy_sources import load_portal_vacancy, ollama_chat, portal_company_code
+from vacancy_storage import content_hash, report_row, write_report
 
 
 FOLLOWUP_MINUTES = (1, 60, 1440, 4320)
