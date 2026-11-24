@@ -1,0 +1,80 @@
+{
+  "model": "qwen3.5:4b",
+  "vacancies": [
+    {
+      "id": "954298a8-e7e6-11f1-8931-dd33cc8cc9df",
+      "findings": [],
+      "url": "https://trudvsem.ru/vacancy/card/1113926016247/954298a8-e7e6-11f1-8931-dd33cc8cc9df"
+    },
+    {
+      "id": "dfbbe076-c929-11f1-b192-3d046a6f7d61",
+      "findings": [
+        {
+          "topic": "schedule",
+          "kind": "ambiguous",
+          "evidence": [
+            {
+              "field": "scheduleTypeComment",
+              "value": "Гибкий график"
+            }
+          ],
+          "problem": "Указан тип графика, но не указаны часы начала и окончания смен.",
+          "recommendation": "Во сколько начинаются и заканчиваются смены и как распределяются рабочие дни?"
+        },
+        {
+          "topic": "employment",
+          "kind": "missing",
+          "evidence": [
+            {
+              "field": "employment",
+              "value": ""
+            }
+          ],
+          "problem": "Тип занятости не указан.",
+          "recommendation": "Какой тип занятости предлагается по этой вакансии?"
+        }
+      ],
+      "url": "https://trudvsem.ru/vacancy/card/1097746274009/dfbbe076-c929-11f1-b192-3d046a6f7d61"
+    },
+    {
+      "id": "ebb27e68-e284-11f1-bbbe-cd6f87e05b83",
+      "findings": [
+        {
+          "topic": "requirements",
+          "kind": "contradiction",
+          "evidence": [
+            {
+              "field": "requirements",
+              "value": "можно без опыта работы"
+            },
+            {
+              "field": "requirement.experience",
+              "value": "1"
+            }
+          ],
+          "problem": "Текст допускает работу без опыта, а в структурированном поле указан опыт больше нуля.",
+          "recommendation": "Можно ли работать без опыта, если в структурированном поле указан опыт 1 год?"
+        }
+      ],
+      "url": "https://trudvsem.ru/vacancy/card/1023902296307/ebb27e68-e284-11f1-bbbe-cd6f87e05b83"
+    },
+    {
+      "id": "333e4e78-85a7-11f1-be40-f90a836cd168",
+      "findings": [
+        {
+          "topic": "schedule",
+          "kind": "ambiguous",
+          "evidence": [
+            {
+              "field": "schedule",
+              "value": "Сменная работа"
+            }
+          ],
+          "problem": "Указан тип графика, но не указаны часы начала и окончания смен.",
+          "recommendation": "Во сколько начинаются и заканчиваются смены и как распределяются рабочие дни?"
+        }
+      ],
+      "url": "https://trudvsem.ru/vacancy/card/1023902296307/333e4e78-85a7-11f1-be40-f90a836cd168"
+    }
+  ]
+}

@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#ffffff">
+  <title>Прозрачная вакансия</title>
+  <link rel="icon" href="/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="download" viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></symbol>
+    <symbol id="upload" viewBox="0 0 24 24"><path d="M12 16V4m-4 4 4-4 4 4M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></symbol>
+    <symbol id="refresh" viewBox="0 0 24 24"><path d="M20 4v5h-5m5 0a8 8 0 1 0 .1 6"/></symbol>
+    <symbol id="open" viewBox="0 0 24 24"><path d="M13 5h6v6m0-6-9 9m7-1v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h5"/></symbol>
+    <symbol id="down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="topics-icon" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10m-7 6h4"/></symbol>
+    <symbol id="settings" viewBox="0 0 24 24"><path d="M19.14 12.94a7.9 7.9 0 0 0 0-1.88l2.03-1.58-2-3.46-2.39.96a7.4 7.4 0 0 0-1.63-.94L14.8 3.5h-4l-.36 2.54a7.4 7.4 0 0 0-1.63.94l-2.39-.96-2 3.46 2.03 1.58a7.9 7.9 0 0 0 0 1.88l-2.03 1.58 2 3.46 2.39-.96c.5.39 1.05.71 1.63.94l.36 2.54h4l.36-2.54c.58-.23 1.13-.55 1.63-.94l2.39.96 2-3.46-2.04-1.58ZM12.8 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z"/></symbol>
+    <symbol id="copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+    <symbol id="check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="flag" viewBox="0 0 24 24"><path d="M5 21V4m0 1c5-3 8 3 14 0v10c-6 3-9-3-14 0"/></symbol>
+    <symbol id="file" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Zm0 0v6h6M8 13h8m-8 4h6"/></symbol>
+  </svg>
+  <header class="masthead">
+    <div class="shell masthead-inner">
+      <h1 class="brand"><img class="brand-mark" src="/mark.svg" width="28" height="28" alt="">Прозрачная вакансия</h1>
+      <div class="masthead-actions">
+        <span class="region">Калининградская область <span>39</span></span>
+        <div class="run-actions" aria-label="Управление проверкой">
+          <span class="action-tooltip" data-tooltip="Автопоток"><button id="auto-check" class="icon-button auto-check" type="button" role="switch" aria-label="Автопоток" aria-checked="false" disabled><svg aria-hidden="true"><use href="#refresh"/></svg></button></span>
+          <span class="action-tooltip" data-tooltip="Загрузить с портала"><button id="run-api" class="icon-button" type="button" aria-label="Загрузить с портала" disabled><svg aria-hidden="true"><use href="#download"/></svg></button></span>
+          <span class="action-tooltip" data-tooltip="Выбрать JSON" id="choose-file-wrap" hidden><button id="choose-file" class="icon-button" type="button" aria-label="Выбрать JSON" hidden disabled><svg aria-hidden="true"><use href="#upload"/></svg></button></span>
+          <input id="upload-file" type="file" accept=".json,application/json" hidden>
+          <div id="queue-control" class="queue-control" hidden>
+            <button id="queue-trigger" class="icon-button queue-trigger" type="button" aria-label="Текущая обработка" aria-expanded="false" aria-controls="live-queue"><svg aria-hidden="true"><use href="#file"/></svg><span class="queue-indicator" aria-hidden="true"></span></button>
+            <section id="live-queue" class="live-queue" aria-labelledby="queue-title" hidden>
+              <div class="queue-heading"><h2 id="queue-title">Текущая обработка</h2><span class="queue-live-dot" aria-hidden="true"></span></div>
+              <p id="queue-progress" class="queue-progress"></p>
+              <p id="queue-empty" class="queue-empty">Список появится после загрузки вакансий.</p>
+              <ul id="queue-list"></ul>
+            </section>
+          </div>
+        </div>
+        <button id="open-settings" class="icon-button settings-button" type="button" aria-label="Настройки" title="Настройки" aria-haspopup="dialog"><svg aria-hidden="true"><use href="#settings"/></svg></button>
+      </div>
+    </div>
+  </header>
+  <main class="shell">
+    <div class="notification-stack">
+      <div id="notice" class="notice" role="status" aria-live="polite">Проверяем доступность отчётов…</div>
+      <p id="stale-reminder" class="notice stale-reminder" hidden></p>
+    </div>
+    <section class="report" aria-label="Отчёты">
+      <div id="workspace" class="workspace">
+        <section class="vacancies" aria-labelledby="list-title">
+          <div class="panel-heading">
+            <h2 id="list-title">Вакансии</h2>
+            <div class="panel-controls">
+              <div class="source-controls">
+                <button id="source-trigger" class="source-trigger" type="button" aria-expanded="false" aria-controls="source-menu">
+                  <span id="source-current-label">Рабочий отчёт</span><svg aria-hidden="true"><use href="#down"/></svg>
+                </button>
+                <div id="source-menu" class="source-menu" role="group" aria-label="Выберите режим" hidden>
+                  <button class="source" type="button" data-mode="api" aria-pressed="true">Рабочий отчёт<svg aria-hidden="true"><use href="#check"/></svg></button>
+                  <button class="source" type="button" data-mode="file" aria-pressed="false">Локальный JSON<svg aria-hidden="true"><use href="#check"/></svg></button>
+                </div>
+              </div>
+              <div class="topic-control" id="topic-control" title="Темы замечаний">
+                <svg aria-hidden="true"><use href="#topics-icon"/></svg>
+                <select class="topic" id="filters-api" aria-label="Тема замечания"><option value="">Все темы</option></select>
+                <select class="topic" id="filters-file" aria-label="Тема замечания" hidden><option value="">Все темы</option></select>
+              </div>
+            </div>
+          </div>
+          <div id="vacancy-views" class="vacancy-views" hidden>
+            <label class="visually-hidden" for="vacancy-view">Раздел вакансий</label>
+            <select id="vacancy-view">
+              <option value="review">На разбор</option>
+              <optgroup label="Архив">
+                <option value="archive">Все архивные</option>
+                <option value="waiting">Ожидают исправления</option>
+                <option value="partial">Частично исправлены</option>
+                <option value="fixed">Исправлены</option>
+              </optgroup>
+            </select>
+            <svg aria-hidden="true"><use href="#down"/></svg>
+          </div>
+          <div class="list-scroll"><ul id="vacancy-list" class="vacancy-list"></ul></div>
+          <p id="shown-count" class="shown-count" role="status"></p>
+        </section>
+        <div class="report-content">
+          <section id="detail" class="detail" aria-labelledby="detail-title" hidden>
+            <div class="panel-heading detail-heading">
+              <div><h2 id="detail-title" tabindex="-1">Замечания</h2><p id="detail-id" class="record-id"></p></div>
+              <div class="detail-actions">
+                <button id="complain" class="icon-button" type="button" aria-label="Пожаловаться на ошибку ИИ" title="Пожаловаться на ошибку ИИ"><svg aria-hidden="true"><use href="#flag"/></svg></button>
+                <button id="mark-reviewed" class="icon-button" type="button" aria-label="Разобрано" title="Разобрано" hidden><svg aria-hidden="true"><use href="#check"/></svg></button>
+                <button id="download-report" class="icon-button download" type="button" aria-label="Скачать отчёт в JSON" title="Скачать отчёт в JSON" disabled><svg aria-hidden="true"><use href="#download"/></svg></button>
+                <a id="detail-link" class="icon-button" target="_blank" rel="noopener noreferrer" aria-label="Открыть карточку вакансии" title="Открыть карточку вакансии" hidden><svg aria-hidden="true"><use href="#open"/></svg></a>
+              </div>
+            </div>
+            <p id="complaint-status" class="complaint-status" role="status" hidden></p>
+            <label id="followup-choice" class="followup-choice" hidden><input id="track-vacancy" type="checkbox" checked> Отслеживать исправления</label>
+            <p id="followup-unavailable" class="followup-choice muted" hidden>В карточке нет кода работодателя для отслеживания.</p>
+            <div id="followup-detail" class="followup-detail" hidden></div>
+            <div id="findings" class="findings"></div>
+          </section>
+          <div id="report-empty" class="report-empty">
+            <span class="empty-icon"><svg aria-hidden="true"><use href="#file"/></svg></span>
+            <h2 id="empty-title" tabindex="-1">Загружаем отчёт</h2><p id="empty-message" hidden></p>
+          </div>
+        </div>
+      </div>
+    </section>
+    <span id="copy-status" class="visually-hidden" role="status"></span>
+  </main>
+  <dialog id="complaint-dialog" class="settings-dialog" aria-labelledby="complaint-title">
+    <form id="complaint-form">
+      <h2 id="complaint-title">Ошибка в определении проблемы</h2>
+      <p>Заявка и её замечания сохранятся для проверки.</p>
+      <label for="complaint-comment">Что определено неверно? <span class="muted">Необязательно</span></label>
+      <textarea id="complaint-comment" rows="4" maxlength="2000" placeholder="Опишите ошибку"></textarea>
+      <p id="complaint-message" role="alert" hidden></p>
+      <div class="settings-actions">
+        <button id="cancel-complaint" class="button secondary" type="button">Отмена</button>
+        <button id="send-complaint" class="button primary" type="submit">Сохранить жалобу</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="settings-dialog" class="settings-dialog" aria-labelledby="settings-title">
+    <form id="settings-form">
+      <h2 id="settings-title">Настройки</h2>
+      <fieldset id="settings-config" disabled>
+        <label>
+          <span id="settings-limit-label">Карточек в очереди «На разбор»</span>
+          <input id="settings-limit" type="number" min="1" step="1" required aria-labelledby="settings-limit-label" aria-describedby="settings-limit-note">
+          <small id="settings-limit-note">Считаются только вакансии с замечаниями.</small>
+        </label>
+        <label>
+          <span>Модель Ollama</span>
+          <select id="settings-model" required aria-describedby="settings-model-note"></select>
+          <small id="settings-model-note">Применяется со следующего запуска</small>
+        </label>
+        <label>
+          <span>Напоминать об обновлении через</span>
+          <select id="settings-reminder">
+            <option value="12">12 часов</option>
+            <option value="24">24 часа</option>
+            <option value="72">3 дня</option>
+            <option value="0">Не напоминать</option>
+          </select>
+        </label>
+        <label class="settings-checkbox">
+          <span><input id="settings-followup" type="checkbox" aria-labelledby="settings-followup-label" aria-describedby="settings-followup-note"><span id="settings-followup-label">Отслеживать исправления</span></span>
+          <small id="settings-followup-note">Для вакансий с портала после отметки об отправке. Повторные проверки идут, пока запущен локальный сервер.</small>
+        </label>
+        <label id="settings-followup-interval" hidden>
+          <span>Проверять исправления каждые</span>
+          <select id="settings-followup-minutes">
+            <option value="1">1 минуту</option>
+            <option value="60">1 час</option>
+            <option value="1440">24 часа</option>
+            <option value="4320">3 дня</option>
+          </select>
+        </label>
+        <label id="settings-archive-agent" hidden>
+          <span id="settings-archive-label">Второй агент для архива</span>
+          <select id="settings-archive-model" aria-labelledby="settings-archive-label" aria-describedby="settings-archive-note"></select>
+          <small id="settings-archive-note"></small>
+        </label>
+      </fieldset>
+      <p id="settings-message" role="status" hidden></p>
+      <div class="settings-actions">
+        <button id="cancel-settings" class="button secondary" type="button">Отмена</button>
+        <button id="save-settings" class="button primary" type="submit" disabled>Сохранить</button>
+      </div>
+    </form>
+  </dialog>
+  <template id="vacancy-template">
+    <li class="vacancy">
+      <button class="vacancy-button" type="button" aria-pressed="false">
+        <strong class="vacancy-title"></strong><span class="vacancy-status"></span>
+      </button>
+      <a class="icon-button row-link" target="_blank" rel="noopener noreferrer" title="Открыть карточку вакансии" hidden><svg aria-hidden="true"><use href="#open"/></svg></a>
+    </li>
+  </template>
+  <template id="finding-template">
+    <article class="finding">
+      <div class="finding-heading"><h3></h3><span class="kind"></span></div>
+      <p class="problem"></p>
+      <section class="evidence-block" aria-label="Исходные данные">
+        <h4>Исходные данные</h4>
+        <div class="evidence"></div>
+      </section>
+      <div class="question">
+        <div class="question-copy"><h4 class="recommendation-label">Вопрос работодателю</h4><p class="recommendation"></p></div>
+        <button class="button copy" type="button"><svg aria-hidden="true"><use href="#copy"/></svg><span>Скопировать вопрос</span></button>
+        <p class="copy-error" hidden>Скопируйте текст вопроса вручную.</p>
+      </div>
+    </article>
+  </template>
+  <template id="evidence-template">
+    <div class="citation"><code></code><blockquote></blockquote></div>
+  </template>
+  <template id="queue-check">
+    <svg aria-hidden="true"><use href="#check"/></svg>
+  </template>
+  <template id="queue-spinner">
+    <span class="queue-spinner" aria-hidden="true"></span>
+  </template>
+  <template id="queue-processing">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l11 7-11 7z" fill="currentColor"/></svg>
+  </template>
+</body>
+</html>

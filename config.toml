@@ -1,0 +1,19 @@
+[api]
+url = "https://opendata.trudvsem.ru/api/v1/vacancies/region/39"
+page_size = 10
+max_vacancies = 20
+timeout_seconds = 20
+
+[ollama]
+model = "qwen3.5:4b"
+timeout_seconds = 180
+archive_model = ""
+
+[output]
+path = "output/report.json"
+file_path = "output/verification-report.json"
+
+[web]
+reminder_hours = 24
+followup_enabled = false
+followup_minutes = 1440
