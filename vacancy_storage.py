@@ -8,7 +8,7 @@ from pathlib import Path
 
 from vacancy_analysis import ANALYSIS_VERSION
 from vacancy_fields import ReportError, source_fields
-from vacancy_rules import compatible_citations, experience_finding, schedule_placement_finding
+from vacancy_rules import SCHEDULE_FIELDS, compatible_citations, experience_finding, schedule_placement_finding
 from vacancy_sources import portal_company_code
 
 
@@ -97,11 +97,17 @@ def refresh_saved_findings(report):
         fields = row.get("source_fields")
         kept = []
         placements = []
+        if fields:
+            placement = schedule_placement_finding(
+                fields.get("requirement.qualification", ""), *(fields.get(key, "") for key in SCHEDULE_FIELDS)
+            )
+            if placement:
+                placements.append(placement)
         for finding in findings:
             if compatible_citations(finding):
                 qualification = next((quote["value"] for quote in finding["evidence"]
                                       if quote["field"] == "requirement.qualification"), "")
-                if placement := schedule_placement_finding(qualification):
+                if not fields and (placement := schedule_placement_finding(qualification)):
                     placements.append(placement)
             elif (fields and finding.get("recommendation_source") == "rule" and finding["topic"] == "requirements"
                   and any(quote["field"] == "requirement.experience" for quote in finding["evidence"])):

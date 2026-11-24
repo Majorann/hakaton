@@ -87,18 +87,22 @@ def has_substantive_value(value):
     return bool(value) and value not in UNSPECIFIED
 
 
-def schedule_placement_finding(value):
-    match = CYCLE_HOURS.search(value)
-    if match:
-        return {
-            "topic": "schedule", "kind": "ambiguous",
-            "problem": "Рабочие дни и часы указаны в поле «Требуемая квалификация».",
-            "problem_highlight": "в поле «Требуемая квалификация»",
-            "evidence": [{"field": "requirement.qualification", "value": match[0], "highlight": match[0]}],
-            "recommendation": "Можно указать рабочие дни и часы в описании графика работы?",
-            "recommendation_source": "rule",
-        }
-    return None
+def schedule_placement_finding(value, *schedule_values):
+    hours = CYCLE_HOURS.search(value)
+    pattern = CYCLE_HOURS if hours else WORK_CYCLE
+    match = hours or WORK_CYCLE.search(value)
+    if not match or any(pattern.search(text) for text in schedule_values):
+        return None
+    details = "Рабочие дни и часы указаны" if hours else "Чередование рабочих и выходных дней указано"
+    return {
+        "topic": "schedule", "kind": "ambiguous",
+        "problem": f"{details} в поле «Требуемая квалификация».",
+        "problem_highlight": "в поле «Требуемая квалификация»",
+        "evidence": [{"field": "requirement.qualification", "value": match[0], "highlight": match[0]}],
+        "recommendation": ("Можно указать рабочие дни и часы в описании графика работы?" if hours else
+                           "Можно указать чередование рабочих и выходных дней в описании графика работы?"),
+        "recommendation_source": "rule",
+    }
 
 
 def experience_minimum(clause):
@@ -109,12 +113,20 @@ def experience_minimum(clause):
     return None
 
 
+def experience_months(match):
+    half_year, count, unit = match.groups()
+    if half_year:
+        return 6
+    words = {"одного": 1, "один": 1, "двух": 2, "два": 2, "трех": 3, "трёх": 3, "три": 3, "шести": 6, "шесть": 6}
+    number = int(count) if count.isdecimal() else words[count.casefold()]
+    return number if unit.casefold().startswith("мес") else number * 12
+
+
 def experience_finding(fields):
     experience = fields.get("requirement.experience", "")
     if not experience.isdecimal():
         return None
     months = int(experience) * 12
-    words = {"одного": 1, "один": 1, "двух": 2, "два": 2, "трех": 3, "трёх": 3, "три": 3, "шести": 6, "шесть": 6}
     for key in TEXT_FIELDS:
         text = fields.get(key, "")
         for clause in re.split(r"[;\n•]|(?<=[.!?])\s+", text):
@@ -137,26 +149,13 @@ def experience_finding(fields):
                 problem = "В тексте опыт указан как преимущество, а в поле «Опыт работы» задан минимальный стаж."
                 question = "Этот стаж обязателен или опыт учитывается как преимущество?"
             elif minimum := experience_minimum(clause):
-                half_year, count, unit = minimum.groups()
-                minimum_months = 6 if half_year else (int(count) if count.isdecimal() else words[count.casefold()])
-                if unit and not unit.casefold().startswith("мес"):
-                    minimum_months *= 12
-                if minimum_months == months:
+                minimum_months = experience_months(minimum)
+                if minimum_months == months or (minimum_months < 12 and months in (0, 12)):
                     continue
                 value = clause.strip()
                 kind = "contradiction" if months == 0 else "ambiguous"
                 problem = f"В тексте и поле «Опыт работы» указаны разные минимальные сроки: {minimum_months} и {months} мес."
                 question = "Какой минимальный стаж требуется кандидату?"
-                if 0 < minimum_months < 12 and months in (0, 12):
-                    kind = "ambiguous"
-                    field_value = "1 год" if months else "0 лет"
-                    problem = (f"В тексте указан стаж от {minimum_months} мес., "
-                               f"в поле «Опыт работы» — {field_value}.")
-                    if months:
-                        question = f"Рассматриваете ли вы кандидатов со стажем от {minimum_months} мес.?"
-                    else:
-                        question = (f"Рассматриваете ли вы кандидатов без опыта "
-                                    f"или требуется стаж от {minimum_months} мес.?")
             elif months == 0 and (required := EXPERIENCE_REQUIRED.search(clause)):
                 value = required[0]
                 kind = "contradiction"
@@ -172,7 +171,9 @@ def experience_finding(fields):
             reqs = re.search(r"\bтребования\s*[:•](.*?)(?:базовый социальный пакет|условия\s*[:•]|$)",
                              text, re.IGNORECASE | re.DOTALL)
             if reqs and (required := re.search(r"\bопыт работы\s+[^.;•\n]+", reqs[1], re.IGNORECASE)):
-                if not (NO_EXPERIENCE.search(required[0]) or EXPERIENCE_PREFERRED.search(required[0])):
+                minimum = experience_minimum(required[0])
+                if not (NO_EXPERIENCE.search(required[0]) or EXPERIENCE_PREFERRED.search(required[0])
+                        or (minimum and experience_months(minimum) < 12)):
                     return {
                         "topic": "requirements", "kind": "contradiction",
                         "problem": "Опыт перечислен в разделе требований, а в поле «Опыт работы» указан нулевой стаж.",
@@ -185,8 +186,10 @@ def experience_finding(fields):
 
 def known_findings(fields):
     findings = {}
-    placement = schedule_placement_finding(fields.get("requirement.qualification", ""))
-    if placement and not any(CYCLE_HOURS.search(fields.get(key, "")) for key in SCHEDULE_FIELDS):
+    placement = schedule_placement_finding(
+        fields.get("requirement.qualification", ""), *(fields.get(key, "") for key in SCHEDULE_FIELDS)
+    )
+    if placement:
         findings["schedule_placement"] = placement
     comments = " ".join(fields.get(key, "") for key in TEXT_FIELDS)
     has_work_hours = len(WORK_TIME.findall(comments)) >= 2
@@ -244,9 +247,17 @@ def compatible_citations(finding):
             return True
         if topic == "schedule" and quote["field"] == "schedule" and value == "полный рабочий день":
             return "не соответствует реальности" in finding.get("problem", "").casefold()
-    if kind != "contradiction" or len(evidence) != 2:
+    if len(evidence) != 2:
         return False
     cited = {item["field"]: item["value"].strip() for item in evidence}
+    if topic == "requirements" and cited.get("requirement.experience") in {"0", "1"}:
+        text = next((value for key, value in cited.items() if key != "requirement.experience"), "")
+        minimum = experience_minimum(text) or EXPERIENCE_MINIMUM.fullmatch(text)
+        if (minimum and experience_months(minimum) < 12
+                and not (NO_EXPERIENCE.search(text) or EXPERIENCE_PREFERRED.search(text))):
+            return True
+    if kind != "contradiction":
+        return False
     if topic in {"employment", "schedule"}:
         schedule = cited.get("schedule", "").casefold()
         other_schedule = next((value for field, value in cited.items() if field != "schedule"), "")
