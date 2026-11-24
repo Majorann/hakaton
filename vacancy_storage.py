@@ -8,7 +8,7 @@ from pathlib import Path
 
 from vacancy_analysis import ANALYSIS_VERSION
 from vacancy_fields import ReportError, source_fields
-from vacancy_rules import SCHEDULE_FIELDS, compatible_citations, experience_finding, schedule_placement_finding
+from vacancy_rules import compatible_citations, experience_finding
 from vacancy_sources import portal_company_code
 
 
@@ -57,6 +57,14 @@ def content_hash(vacancy):
     return sha256(data.encode("utf-8")).hexdigest()
 
 
+def has_review_issues(row):
+    return bool(row["findings"]) or (row.get("editor_review") or {}).get("status") == "problem"
+
+
+def report_revision(info):
+    return f"{info.st_mtime_ns}:{info.st_size}"
+
+
 def report_row(vacancy, row, mode):
     row["source_fields"] = source_fields(vacancy)
     title = vacancy.get("job-name")
@@ -96,28 +104,19 @@ def refresh_saved_findings(report):
         findings = row["findings"]
         fields = row.get("source_fields")
         kept = []
-        placements = []
-        if fields:
-            placement = schedule_placement_finding(
-                fields.get("requirement.qualification", ""), *(fields.get(key, "") for key in SCHEDULE_FIELDS)
-            )
-            if placement:
-                placements.append(placement)
         for finding in findings:
             if compatible_citations(finding):
-                qualification = next((quote["value"] for quote in finding["evidence"]
-                                      if quote["field"] == "requirement.qualification"), "")
-                if not fields and (placement := schedule_placement_finding(qualification)):
-                    placements.append(placement)
-            elif (fields and finding.get("recommendation_source") == "rule" and finding["topic"] == "requirements"
+                continue
+            if (fields and finding.get("recommendation_source") == "rule" and finding["topic"] == "requirements"
                   and any(quote["field"] == "requirement.experience" for quote in finding["evidence"])):
                 if revised := experience_finding(fields):
                     kept.append({**revised, "recommendation_source": "rule"})
             else:
-                kept.append(finding)
-        for placement in placements:
-            if placement not in kept:
-                kept.append(placement)
+                updated = {
+                    key: finding[key].replace("Требуемая квалификация", "Дополнительные сведения по вакансии")
+                    for key in ("problem", "problem_highlight", "recommendation") if key in finding
+                }
+                kept.append({**finding, **updated})
         if kept != findings:
             row["findings"] = kept
             changed = True

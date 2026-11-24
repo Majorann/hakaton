@@ -115,11 +115,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.local_request() or not self.authenticated():
             return
-        if self.path in ("/api/settings", "/api/archive", "/api/complaints"):
+        if self.path in ("/api/settings", "/api/archive", "/api/complaints", "/api/editor-review"):
             settings = self.path == "/api/settings"
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                if not 0 < length <= (4096 if settings else MAX_RESPONSE) or self.headers.get_content_type() != "application/json":
+                limit = 4096 if settings else 16384 if self.path == "/api/editor-review" else MAX_RESPONSE
+                if not 0 < length <= limit or self.headers.get_content_type() != "application/json":
                     raise ValueError
                 values = json.loads(self.rfile.read(length))
                 dashboard = self.server.dashboard
@@ -127,6 +128,8 @@ class Handler(BaseHTTPRequestHandler):
                     result = dashboard.save_settings(values)
                 elif self.path == "/api/archive":
                     result = dashboard.mark_sent(values)
+                elif self.path == "/api/editor-review":
+                    result = dashboard.review_vacancy(values)
                 else:
                     result = dashboard.save_complaint(values)
             except ReportError as error:
@@ -134,7 +137,10 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, TypeError, KeyError, RecursionError):
                 self.json_reply(HTTPStatus.BAD_REQUEST, {"error": "Не удалось прочитать запрос."})
             except OSError:
-                target = "настройки" if settings else "жалобу" if self.path == "/api/complaints" else "архив заявок"
+                target = {
+                    "/api/settings": "настройки", "/api/complaints": "жалобу",
+                    "/api/editor-review": "решение редактора", "/api/archive": "архив заявок",
+                }[self.path]
                 self.json_reply(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Не удалось сохранить {target}."})
             else:
                 self.json_reply(HTTPStatus.OK, result)

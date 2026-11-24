@@ -287,8 +287,11 @@ try {
     } else {
         Write-Host "Проверяем $($inputFile.Name)…"
         & $python -X utf8 (Join-Path $project 'vacancy_report.py') file $inputFile.FullName
-        if ($LASTEXITCODE -ne 0) { throw 'Проверка завершилась с ошибкой. Подробности указаны выше.' }
+        $checkExit = $LASTEXITCODE
+        if ($checkExit -eq 2) { Write-Host 'Часть вакансий не проверена. Ошибки перечислены в отчёте.' }
+        elseif ($checkExit -ne 0) { throw 'Проверка завершилась с ошибкой. Подробности указаны выше.' }
         Write-Host "Проверочный отчёт сохранён в $($settings.output)"
+        exit $checkExit
     }
     exit 0
 } catch {

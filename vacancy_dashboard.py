@@ -9,14 +9,17 @@ from secrets import token_urlsafe
 from threading import Condition, Thread
 from time import time
 
+from vacancy_analysis import analyze_fields
 from vacancy_fields import ReportError
 from vacancy_followup import (
     FOLLOWUP_MINUTES, PENDING_STATUSES, VacancyArchive, follow_up, next_check,
 )
 from vacancy_report import generate_report
 from vacancy_settings import REMINDER_HOURS, editable_settings, installed_models, update_toml
-from vacancy_sources import MAX_VACANCIES, load_local, load_upload
-from vacancy_storage import read_config, refresh_saved_findings, report_path, write_atomic
+from vacancy_sources import MAX_VACANCIES, load_local, load_upload, ollama_chat
+from vacancy_storage import (
+    has_review_issues, read_config, refresh_saved_findings, report_path, report_revision, write_atomic, write_report,
+)
 
 
 ROOT = Path(__file__).resolve().parent
@@ -45,6 +48,7 @@ class Dashboard:
         self.active = None
         self.jobs = {}
         self.followup_running = False
+        self.editor_check = False
         self.auto_refill = False
         self.refill_at = None
         self.stopped = False
@@ -55,7 +59,7 @@ class Dashboard:
         for mode, path in self.reports.items():
             try:
                 info = path.stat()
-                revisions[mode] = f"{info.st_mtime_ns}:{info.st_size}"
+                revisions[mode] = report_revision(info)
                 if mode == "api":
                     portal_updated = info.st_mtime
             except FileNotFoundError:
@@ -72,6 +76,7 @@ class Dashboard:
                 "followup_enabled": self.preferences["followup_enabled"],
                 "followup_minutes": self.preferences["followup_minutes"],
                 "followup_running": self.followup_running,
+                "editor_check": self.editor_check,
                 "archive_revision": self.archive.revision,
                 "queue_limit": self.preferences["max_vacancies"],
                 "auto_refill": self.auto_refill,
@@ -148,6 +153,60 @@ class Dashboard:
         write_atomic(path, json.dumps(complaint, ensure_ascii=False, indent=2, allow_nan=False) + "\n")
         return {"saved": True}
 
+    def review_vacancy(self, values):
+        if not isinstance(values, dict):
+            raise ReportError("Не удалось прочитать решение редактора.")
+        mode, vacancy_id, decision = (values.get(key) for key in ("source", "id", "decision"))
+        comment = values.get("comment", "")
+        if (mode not in MODE_NAMES or not isinstance(vacancy_id, str) or not vacancy_id
+                or decision not in ("confirm", "problem") or not isinstance(comment, str) or len(comment) > 2000):
+            raise ReportError("Не удалось прочитать решение редактора.")
+        path = self.reports[mode]
+        with self.lock:
+            if self.active is not None or self.editor_check or self.followup_running:
+                raise ReportError("Дождитесь окончания текущей проверки.")
+            with path.open(encoding="utf-8") as report:
+                revision = report_revision(fstat(report.fileno()))
+                saved = json.load(report)
+            if revision != values.get("revision"):
+                raise ReportError("Отчёт обновился. Откройте актуальную карточку и повторите действие.")
+            refresh_saved_findings(saved)
+            row = next((item for item in saved["vacancies"] if item["id"] == vacancy_id), None)
+            if row is None or row["findings"] or (mode == "api" and vacancy_id in self.archived_ids):
+                raise ReportError("Карточка недоступна для этой отметки.")
+            fields = row.get("source_fields")
+            previous = row.get("editor_review") or {}
+            if decision == "confirm":
+                row["editor_review"] = {"status": "confirmed"}
+                write_report(path, saved)
+                return row
+            if not fields:
+                raise ReportError("В отчёте нет исходных полей вакансии. Сначала обновите отчёт.")
+            if previous.get("status") == "problem" and not previous.get("error"):
+                raise ReportError("Карточка уже отмечена как проблемная.")
+            self.editor_check = True
+        comment = comment.strip()
+        review = {"status": "problem", "comment": comment}
+        try:
+            try:
+                model, chat = ollama_chat(read_config(self.config_path))
+                review["model"] = model
+                row["findings"] = analyze_fields(vacancy_id, fields, model, chat, strict=True,
+                                                 editor_comment=comment)
+            except (ReportError, OSError) as problem:
+                logging.warning("Проверка по отметке редактора, вакансия %s: %s", vacancy_id, problem)
+                review["error"] = str(problem)
+            with self.lock:
+                if report_revision(path.stat()) != revision:
+                    raise ReportError("Отчёт обновился. Откройте актуальную карточку и повторите действие.")
+                row["editor_review"] = review
+                write_report(path, saved)
+                return row
+        finally:
+            with self.lock:
+                self.editor_check = False
+                self.lock.notify_all()
+
     def mark_sent(self, values):
         if not isinstance(values, dict):
             raise ReportError("Не удалось прочитать отметку об отправке.")
@@ -195,7 +254,7 @@ class Dashboard:
             with self.lock:
                 if self.stopped:
                     return
-                if self.active is not None:
+                if self.active is not None or self.editor_check:
                     self.lock.wait()
                     continue
                 minutes = self.preferences["followup_minutes"]
@@ -237,7 +296,7 @@ class Dashboard:
 
     def start(self, mode, upload, *, autoflow=False):
         with self.lock:
-            if self.active is not None or self.followup_running:
+            if self.active is not None or self.followup_running or self.editor_check:
                 return False
             if mode == "api":
                 if autoflow:
@@ -247,7 +306,7 @@ class Dashboard:
             self.jobs[mode] = {
                 "status": "running", "stage": "loading", "current": 0, "total": None,
                 "enabled": True, "paused": False, "results": [],
-                "vacancies": [], "cached": 0, "new_with_findings": 0,
+                "vacancies": [], "cached": 0, "new_with_findings": 0, "failed": 0,
             }
         Thread(target=self.run, args=(mode, upload), daemon=True).start()
         return True
@@ -292,21 +351,28 @@ class Dashboard:
         def needs_refill(rows):
             with self.lock:
                 return self.jobs[mode]["enabled"] and sum(
-                    bool(row["findings"]) and row["id"] not in self.archived_ids for row in rows
+                    has_review_issues(row) and row["id"] not in self.archived_ids for row in rows
                 ) < self.preferences["max_vacancies"]
 
-        def progress(next_stage, current, total, vacancies=None, processing=None, result=None, cache_hit=False):
+        def progress(next_stage, current, total, vacancies=None, processing=None, result=None, cache_hit=False,
+                     failure=None):
             nonlocal stage
             stage = next_stage
             with self.lock:
                 job = self.jobs[mode]
                 job.update(stage=stage, current=current, total=total, processing=processing)
+                if failure is not None:
+                    job["failed"] += 1
+                    for row in job["vacancies"]:
+                        if row["id"] == failure["id"]:
+                            row.update(outcome="failed", error=failure["error"])
+                            break
                 if result is not None:
-                    if result["findings"]:
+                    if has_review_issues(result):
                         job["results"].append(result)
                     job["cached"] += cache_hit
                     vacancy_id = result["id"]
-                    if not result["findings"]:
+                    if not has_review_issues(result):
                         outcome = "clean"
                     elif mode == "api" and vacancy_id in self.archived_ids:
                         outcome = "archived"
@@ -336,8 +402,9 @@ class Dashboard:
             if refill:
                 with self.lock:
                     refill_options = {"needs_refill": needs_refill, "archived_ids": set(self.archived_ids)}
-            shortage = generate_report(config, mode, self.reports[mode], vacancies, progress, before_work,
-                                       **refill_options)
+            result = generate_report(config, mode, self.reports[mode], vacancies, progress, before_work,
+                                     **refill_options)
+            shortage = refill and result
         except (ReportError, OSError, ValueError, KeyError, TypeError) as problem:
             if str(problem).startswith(("API «Работа России»", "api.")):
                 error = str(problem)

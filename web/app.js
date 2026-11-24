@@ -51,6 +51,7 @@ async function refresh() {
     const wasActive = dashboard.state?.active === dashboard.mode;
     const previousCount = dashboard.state?.jobs[dashboard.mode]?.results?.length;
     const preferencesChanged = next.followup_enabled !== dashboard.state?.followup_enabled ||
+      next.editor_check !== dashboard.state?.editor_check ||
       next.followup_minutes !== dashboard.state?.followup_minutes ||
       next.queue_limit !== dashboard.state?.queue_limit;
     const archiveChanged = next.archive_revision !== dashboard.archiveRevision;
@@ -91,7 +92,7 @@ function switchMode(nextMode) {
 }
 
 async function run(nextMode, upload, autoflow = false) {
-  if (dashboard.starting || dashboard.state?.active || dashboard.state?.followup_running) return;
+  if (dashboard.starting || dashboard.state?.active || dashboard.state?.followup_running || dashboard.state?.editor_check) return;
   dashboard.actionErrors.delete(nextMode);
   dashboard.starting = nextMode;
   switchMode(nextMode);

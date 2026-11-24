@@ -13,6 +13,7 @@ export const dashboard = {
   archiveRevision: null,
   archiveEntries: [],
   markingSent: false,
+  editorSubmitting: false,
 };
 
 const reviewedKey = "vacancy-reviewed-v1";
@@ -36,12 +37,26 @@ function findingsSignature(findings) {
   return JSON.stringify(findings, (key, value) => key === "highlight" || key === "problem_highlight" ? undefined : value);
 }
 
+export function hasReviewIssues(row) {
+  return Boolean(row.findings.length) || row.editor_review?.status === "problem";
+}
+
+export function selectionKey(mode, view) {
+  return `${mode}:${view}`;
+}
+
+export function cleanRows(saved, source) {
+  const archivedIds = new Set(source === "api" ? dashboard.archiveEntries.map((entry) => entry.original.id) : []);
+  return saved.filter((row) => row.source_fields && Object.keys(row.source_fields).length &&
+    !hasReviewIssues(row) && !archivedIds.has(row.id));
+}
+
 export function reviewRows(completed, source) {
   if (source === "api") {
     const archivedIds = new Set(dashboard.archiveEntries.map((entry) => entry.original.id));
-    return completed.filter((row) => row.findings.length && !archivedIds.has(row.id));
+    return completed.filter((row) => hasReviewIssues(row) && !archivedIds.has(row.id));
   }
-  return completed.filter((row) => row.findings.length &&
+  return completed.filter((row) => hasReviewIssues(row) &&
     reviewed.get(`${source}:${row.id}`) !== findingsSignature(row.findings));
 }
 

@@ -15,7 +15,7 @@ const fieldLabels = {
   skills: "Навыки", salary: "Зарплата", salary_min: "Минимальная зарплата",
   salary_max: "Максимальная зарплата", currency: "Валюта", schedule: "График работы",
   scheduleTypeComment: "Описание графика", shift: "Смена", employment: "Тип занятости",
-  "requirement.education": "Образование", "requirement.qualification": "Требуемая квалификация",
+  "requirement.education": "Образование", "requirement.qualification": "Дополнительные сведения по вакансии",
   "requirement.experience": "Опыт работы", "term.text": "Условия работы",
   "addresses.address": "Адрес работы", "addresses.address.location": "Адрес работы",
 };

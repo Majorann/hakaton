@@ -7,16 +7,16 @@ const sourceMenu = byId("source-menu");
 const sourceCurrentLabel = byId("source-current-label");
 
 export function renderSourcePicker(mode, archiveView) {
-  const fromArchive = mode === "api" && archiveView !== "review";
+  const hideTopics = archiveView !== "review";
   sourceCurrentLabel.textContent = modes[mode].label;
   sourceTrigger.setAttribute("aria-label", `Источник отчёта: ${modes[mode].label}`);
   byId("choose-file").hidden = mode !== "file";
   byId("choose-file-wrap").hidden = mode !== "file";
-  byId("topic-control").hidden = fromArchive;
+  byId("topic-control").hidden = hideTopics;
   for (const button of sourceButtons) {
     const active = button.dataset.mode === mode;
     button.setAttribute("aria-pressed", String(active));
-    byId(`filters-${button.dataset.mode}`).hidden = !active || fromArchive;
+    byId(`filters-${button.dataset.mode}`).hidden = !active || hideTopics;
   }
 }
 

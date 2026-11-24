@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 
-from vacancy_analysis import analyze
+from vacancy_analysis import InvalidModelResponse, analyze
 from vacancy_fields import ReportError, vacancy_result
 from vacancy_sources import (
     MAX_RESPONSE, MAX_UPLOAD, MAX_VACANCIES, load_local, load_portal_vacancy, load_remote,
@@ -38,7 +38,14 @@ def generate_report(config, mode, output, local_vacancies=None, progress=None, b
     rows = []
     skip_ids = set(archived_ids)
     saved_revision = None
-    if needs_refill is not None:
+    editor_reviews = {}
+    if needs_refill is None:
+        try:
+            previous = json.loads(output.read_text(encoding="utf-8"))
+            editor_reviews = {row["id"]: row for row in previous["vacancies"] if row.get("editor_review")}
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            pass
+    else:
         try:
             with output.open(encoding="utf-8") as previous:
                 saved_revision = os.fstat(previous.fileno()).st_mtime_ns
@@ -77,6 +84,7 @@ def generate_report(config, mode, output, local_vacancies=None, progress=None, b
 
     cache_dir = output.with_name(f".{output.name}.cache") if mode == "api" else None
     checked_count = 0
+    errors = []
     findings_count = 0
     reused_count = 0
     for index, vacancy in enumerate(entries, start=1):
@@ -100,7 +108,16 @@ def generate_report(config, mode, output, local_vacancies=None, progress=None, b
             reused_count += 1
         else:
             logging.info("Ollama (%s) — вакансия %d из %d", model, index, len(vacancies))
-            row = analyze(vacancy, model, chat)
+            try:
+                row = analyze(vacancy, model, chat)
+            except InvalidModelResponse as problem:
+                failure = {"id": vacancy_id, "title": vacancy.get("job-name"), "error": str(problem)}
+                errors.append(failure)
+                checked_count = index
+                logging.error("Вакансия %s не проверена: %s", vacancy_id, problem)
+                if progress:
+                    progress("checking", index, total, failure=failure)
+                continue
             if cache_dir is not None:
                 try:
                     write_report(entry_path, {
@@ -109,14 +126,22 @@ def generate_report(config, mode, output, local_vacancies=None, progress=None, b
                 except OSError as error:
                     logging.warning("Не удалось сохранить кеш вакансии %s: %s", vacancy_id, error)
         report_row(vacancy, row, mode)
-        if needs_refill is None or row["findings"]:
-            rows.append(row)
+        previous_row = editor_reviews.get(vacancy_id)
+        if previous_row and previous_row.get("source_fields") == row["source_fields"]:
+            review = previous_row["editor_review"]
+            if review["status"] == "problem":
+                row["editor_review"] = review
+                if not row["findings"]:
+                    row["findings"] = previous_row["findings"]
+            elif not row["findings"]:
+                row["editor_review"] = review
+        rows.append(row)
         checked_count = index
         findings_count += len(row["findings"])
         if progress:
             progress("checking", index, total, result=row, cache_hit=cached is not None)
     if needs_refill is not None:
-        if len(rows) == initial_count and (saved_revision is not None or not checked_count):
+        if not errors and len(rows) == initial_count and (saved_revision is not None or not checked_count):
             return needs_refill(rows)
         try:
             current_revision = output.stat().st_mtime_ns
@@ -131,13 +156,15 @@ def generate_report(config, mode, output, local_vacancies=None, progress=None, b
         "source": mode,
         "completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "vacancies": rows,
+        **({"errors": errors} if errors else {}),
     })
-    logging.info("Сохранён отчёт %s — вакансий %d, замечаний %d", output, len(rows),
-                 findings_count if needs_refill is None else sum(len(row["findings"]) for row in rows))
+    logging.info("Сохранён отчёт %s — вакансий %d, замечаний %d, ошибок проверки %d", output, len(rows),
+                 findings_count if needs_refill is None else sum(len(row["findings"]) for row in rows), len(errors))
     if cache_dir is not None:
         logging.info("Взято из кеша — %d из %d вакансий", reused_count, checked_count)
     if needs_refill is not None:
         return needs_refill(rows)
+    return len(errors)
 
 
 def main():
@@ -166,8 +193,8 @@ def main():
             logging.getLogger().addHandler(handler)
 
         vacancies = load_local(args.input) if args.mode == "file" else None
-        generate_report(config, args.mode, output, vacancies)
-        return 0
+        errors = generate_report(config, args.mode, output, vacancies)
+        return 2 if errors else 0
     except (ReportError, OSError, ValueError, KeyError, TypeError) as error:
         logging.error("%s", error)
         if output is not None and output.is_file():

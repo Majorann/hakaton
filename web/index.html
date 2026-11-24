@@ -78,7 +78,9 @@
             <label class="visually-hidden" for="vacancy-view">Раздел вакансий</label>
             <select id="vacancy-view">
               <option value="review">На разбор</option>
-              <optgroup label="Архив">
+              <option value="clean">Без замечаний</option>
+              <option value="confirmed">Подтверждённые</option>
+              <optgroup id="archive-views" label="Архив">
                 <option value="archive">Все архивные</option>
                 <option value="waiting">Ожидают исправления</option>
                 <option value="partial">Частично исправлены</option>
@@ -105,6 +107,17 @@
             <label id="followup-choice" class="followup-choice" hidden><input id="track-vacancy" type="checkbox" checked> Отслеживать исправления</label>
             <p id="followup-unavailable" class="followup-choice muted" hidden>В карточке нет кода работодателя для отслеживания.</p>
             <div id="followup-detail" class="followup-detail" hidden></div>
+            <section id="editor-review" class="editor-review" aria-label="Проверка редактором" hidden>
+              <p id="editor-review-status" role="status"></p>
+              <div class="editor-review-actions">
+                <button id="editor-confirm" class="button secondary" type="button">Всё в порядке</button>
+                <button id="editor-flag" class="button primary" type="button">Есть проблема</button>
+              </div>
+              <details id="editor-source" open>
+                <summary>Исходные данные вакансии</summary>
+                <dl id="editor-source-fields"></dl>
+              </details>
+            </section>
             <div id="findings" class="findings"></div>
           </section>
           <div id="report-empty" class="report-empty">
@@ -116,6 +129,18 @@
     </section>
     <span id="copy-status" class="visually-hidden" role="status"></span>
   </main>
+  <dialog id="editor-dialog" class="settings-dialog" aria-labelledby="editor-dialog-title">
+    <form id="editor-form">
+      <h2 id="editor-dialog-title">Повторная проверка вакансии</h2>
+      <label for="editor-comment">Что проверить? <span class="muted">Необязательно</span></label>
+      <textarea id="editor-comment" rows="4" maxlength="2000" placeholder="Укажите, что показалось неверным"></textarea>
+      <p id="editor-message" role="status" hidden></p>
+      <div class="settings-actions">
+        <button id="editor-cancel" class="button secondary" type="button">Отмена</button>
+        <button id="editor-send" class="button primary" type="submit">Проверить ещё раз</button>
+      </div>
+    </form>
+  </dialog>
   <dialog id="complaint-dialog" class="settings-dialog" aria-labelledby="complaint-title">
     <form id="complaint-form">
       <h2 id="complaint-title">Ошибка в определении проблемы</h2>

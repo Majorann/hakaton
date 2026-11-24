@@ -87,20 +87,60 @@ function renderHighlightedText(element, text, fragments) {
   element.append(text.slice(cursor));
 }
 
+function renderEditorReview(row, entry, editorBusy) {
+  const panel = byId("editor-review");
+  const fields = Object.entries(row?.source_fields ?? {});
+  const review = row?.editor_review;
+  const flagged = review?.status === "problem";
+  const confirmed = review?.status === "confirmed";
+  const canReview = Boolean(row && !entry && fields.length && !row.findings.length);
+  panel.hidden = !canReview && !flagged;
+  if (panel.hidden) return;
+
+  const confirm = byId("editor-confirm");
+  confirm.hidden = !canReview || confirmed;
+  confirm.disabled = editorBusy;
+  const flag = byId("editor-flag");
+  flag.hidden = !canReview || (flagged && !review.error);
+  flag.textContent = flagged ? "Повторить проверку Qwen" : "Есть проблема";
+  flag.disabled = editorBusy;
+  const notes = [];
+  if (flagged) {
+    notes.push(review.comment ? `Отметка редактора: ${review.comment}` : "Редактор отметил проблему.");
+    if (review.error) notes.push(`Повторная проверка не завершилась. ${review.error}`);
+    else if (!row.findings.length) notes.push("Qwen не нашла замечаний. Карточка остаётся на разборе.");
+  } else {
+    notes.push(confirmed ? "Редактор подтвердил карточку." : "По итогам анализа замечаний нет. Проверьте исходные данные.");
+  }
+  byId("editor-review-status").textContent = notes.join("\n");
+  const list = byId("editor-source-fields");
+  list.replaceChildren();
+  byId("editor-source").hidden = !fields.length;
+  for (const [field, value] of fields) {
+    const label = document.createElement("dt");
+    label.textContent = fieldLabel(field);
+    const text = document.createElement("dd");
+    text.textContent = value;
+    list.append(label, text);
+  }
+}
+
 export function renderDetail(row, entry) {
   const { mode, state } = dashboard;
-  const key = JSON.stringify([mode, row, entry, state?.followup_enabled, state?.followup_minutes]);
+  const editorBusy = Boolean(dashboard.editorSubmitting || state?.active || state?.followup_running || state?.editor_check);
+  const key = JSON.stringify([mode, row, entry, editorBusy, state?.followup_enabled, state?.followup_minutes]);
   if (key === shownDetail) return;
   const preserveHistory = entry?.key && dashboard.detailRow?.entry?.key === entry.key;
   shownDetail = key;
   dashboard.detailRow = row ? { row, entry } : null;
   byId("complaint-status").hidden = true;
   const mark = byId("mark-reviewed");
-  mark.hidden = !row || Boolean(entry);
+  mark.hidden = !row?.findings.length || Boolean(entry);
+  byId("complain").hidden = !row?.findings.length;
   mark.disabled = dashboard.markingSent;
   mark.title = mode === "api" ? "Рекомендации отправлены" : "Разобрано";
   mark.setAttribute("aria-label", mark.title);
-  const trackingOption = mode === "api" && row && !entry && state?.followup_enabled;
+  const trackingOption = mode === "api" && row?.findings.length && !entry && state?.followup_enabled;
   const card = row && vacancyUrl(row.url);
   const cardId = card && /^\/vacancy\/card\/[A-Za-z0-9_-]{1,128}\/([A-Za-z0-9_-]{1,256})\/?$/
     .exec(new URL(card).pathname)?.[1];
@@ -118,9 +158,11 @@ export function renderDetail(row, entry) {
   if (url) link.href = url;
   else link.removeAttribute("href");
 
+  renderEditorReview(row, entry, editorBusy);
   const detail = byId("findings");
   detail.replaceChildren();
   if (!row || !row.findings.length) {
+    if (!byId("editor-review").hidden) return;
     const note = document.createElement("p");
     note.className = "no-findings";
     note.textContent = row ? "Замечаний нет" : "Выберите вакансию из списка.";

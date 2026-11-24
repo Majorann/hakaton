@@ -14,6 +14,7 @@ function renderQueue() {
   const items = document.createDocumentFragment();
   const outcomes = {
     clean: "Без замечаний", archived: "Ранее в архиве", known: "Уже в отчёте", new: "Новая с замечаниями",
+    failed: "Не проверена",
   };
   rows.forEach((row, index) => {
     const item = document.createElement("li");
@@ -22,12 +23,14 @@ function renderQueue() {
     const processing = row.id === job.processing;
     const checked = job.stage !== "loading" && (row.index ?? index) < job.current;
     title.textContent = vacancyTitle(row, state);
-    status.dataset.status = processing ? "processing" : checked ? "checked" : "waiting";
+    status.dataset.status = row.outcome === "failed" ? "failed" :
+      processing ? "processing" : checked ? "checked" : "waiting";
     const label = document.createElement("span");
     label.textContent = outcomes[row.outcome] ?? (processing ? "В обработке" : checked ? "Проверена" : "В ожидании");
-    status.title = row.cached ? `${label.textContent} · Из кеша` : label.textContent;
+    status.title = row.error || (row.cached ? `${label.textContent} · Из кеша` : label.textContent);
     if (!row.outcome) label.className = "visually-hidden";
-    status.append(clone(processing ? "queue-processing" : checked ? "queue-check" : "queue-spinner"), label);
+    if (row.outcome !== "failed") status.append(clone(processing ? "queue-processing" : checked ? "queue-check" : "queue-spinner"));
+    status.append(label);
     item.append(title, status);
     items.append(item);
   });
@@ -37,8 +40,10 @@ function renderQueue() {
 export function renderReminder() {
   const { state, mode, starting, reportCache } = dashboard;
   const reminder = byId("stale-reminder");
-  const hours = (Date.now() / 1000 - state?.portal_updated) / 3600;
-  const outdated = state?.portal_updated && state.reminder_hours && hours >= state.reminder_hours;
+  const completed = Date.parse(reportCache.get("api")?.data.completed_at) / 1000;
+  const updated = Number.isFinite(completed) ? completed : state?.portal_updated;
+  const hours = (Date.now() / 1000 - updated) / 3600;
+  const outdated = updated && state?.reminder_hours && hours >= state.reminder_hours;
   const pending = outdated && reviewRows(reportCache.get("api")?.data.vacancies ?? [], "api").length;
   reminder.hidden = mode !== "api" || Boolean(state?.active || starting) || !outdated || !pending;
   if (!reminder.hidden) {
@@ -57,16 +62,17 @@ export function renderNotice() {
   const activeJob = state?.jobs[state.active];
   const auto = byId("auto-check");
   const autoEnabled = Boolean(state?.active === "file" ? activeJob.enabled : state?.auto_refill);
-  const unavailable = Boolean(busy || state?.followup_running) || !state || Boolean(connectionError);
+  const unavailable = Boolean(busy || state?.followup_running || state?.editor_check) || !state || Boolean(connectionError);
   auto.setAttribute("aria-checked", String(autoEnabled));
   byId("run-api").disabled = unavailable || autoEnabled;
   byId("choose-file").disabled = unavailable;
-  auto.disabled = !state || Boolean(connectionError) || Boolean(starting || state?.followup_running) || changingAuto;
+  auto.disabled = !state || Boolean(connectionError) || Boolean(starting || state?.followup_running || state?.editor_check) || changingAuto;
   const queueControl = byId("queue-control");
   const notice = byId("notice");
   const job = state?.jobs[mode];
   const summary = !busy && job?.current > 0 && job.new_with_findings !== undefined
-    ? `Проверено ${countFormat.format(job.current)} · из кеша ${countFormat.format(job.cached)} · новых с замечаниями ${countFormat.format(job.new_with_findings)}.`
+    ? `Проверено ${countFormat.format(job.current - (job.failed ?? 0))} · из кеша ${countFormat.format(job.cached)} · новых с замечаниями ${countFormat.format(job.new_with_findings)}.` +
+      (job.failed ? ` Не проверено из-за ошибок: ${countFormat.format(job.failed)}.` : "")
     : "";
   queueControl.hidden = !busy && !summary;
   queueControl.toggleAttribute("data-idle", !busy);
@@ -99,6 +105,8 @@ export function renderNotice() {
       const loaded = activeJob.current ? ` Получено ${activeJob.current}.` : "";
       message = busy === "api" ? `Загружаем вакансии с портала…${loaded}` : "Читаем локальный JSON…";
     }
+  } else if (!message && state?.editor_check) {
+    message = "Qwen перепроверяет карточку по отметке редактора…";
   } else if (!message && state?.followup_running) {
     message = "Проверяем исправления в архиве…";
   } else if (!message && mode === "api" && (state?.auto_refill || job?.status === "success")) {
@@ -111,6 +119,11 @@ export function renderNotice() {
     message = "Проверяем доступность отчётов…";
   }
   if (summary && !isError) message = [message, summary].filter(Boolean).join(" ");
+  const savedErrors = reportCache.get(mode)?.data.errors?.length;
+  if (!busy && !summary && !isError && savedErrors) {
+    message = [message, `В сохранённом отчёте не проверено из-за ошибок: ${countFormat.format(savedErrors)}.`]
+      .filter(Boolean).join(" ");
+  }
   if (notice.textContent !== message) notice.textContent = message;
   byId("queue-progress").textContent = isError ? [summary, message].filter(Boolean).join(" ") : message;
   notice.classList.toggle("visually-hidden", Boolean(busy && !isError));
