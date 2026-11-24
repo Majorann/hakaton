@@ -62,7 +62,8 @@ EXPERIENCE_MENTION = re.compile(
     re.IGNORECASE,
 )
 EXPERIENCE_PREFERRED = re.compile(
-    r"\b(?:опыт|стаж)\b[^.!?;\n•]{0,110}?(?:приветству\w+|(?:будет\s+)?(?:вашим\s+)?преимуществом)",
+    r"\b(?:опыт|стаж)\b(?:(?!\b(?:образование|диплом)\b)[^.!?;\n•]){0,110}?"
+    r"(?:приветству\w+|(?:будет\s+)?(?:вашим\s+)?преимуществом)",
     re.IGNORECASE,
 )
 EXPERIENCE_MINIMUM = re.compile(
@@ -146,6 +147,16 @@ def experience_finding(fields):
                 kind = "contradiction" if months == 0 else "ambiguous"
                 problem = f"В тексте и поле «Опыт работы» указаны разные минимальные сроки: {minimum_months} и {months} мес."
                 question = "Какой минимальный стаж требуется кандидату?"
+                if 0 < minimum_months < 12 and months in (0, 12):
+                    kind = "ambiguous"
+                    field_value = "1 год" if months else "0 лет"
+                    problem = (f"В тексте указан стаж от {minimum_months} мес., "
+                               f"в поле «Опыт работы» — {field_value}.")
+                    if months:
+                        question = f"Рассматриваете ли вы кандидатов со стажем от {minimum_months} мес.?"
+                    else:
+                        question = (f"Рассматриваете ли вы кандидатов без опыта "
+                                    f"или требуется стаж от {minimum_months} мес.?")
             elif months == 0 and (required := EXPERIENCE_REQUIRED.search(clause)):
                 value = required[0]
                 kind = "contradiction"

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from vacancy_analysis import ANALYSIS_VERSION
 from vacancy_fields import ReportError, source_fields
-from vacancy_rules import compatible_citations, schedule_placement_finding
+from vacancy_rules import compatible_citations, experience_finding, schedule_placement_finding
 from vacancy_sources import portal_company_code
 
 
@@ -94,16 +94,25 @@ def refresh_saved_findings(report):
     changed = False
     for row in report["vacancies"]:
         findings = row["findings"]
-        kept = [finding for finding in findings if not compatible_citations(finding)]
-        if len(kept) == len(findings):
-            continue
+        fields = row.get("source_fields")
+        kept = []
+        placements = []
         for finding in findings:
-            if not compatible_citations(finding):
-                continue
-            qualification = next((quote["value"] for quote in finding["evidence"]
-                                  if quote["field"] == "requirement.qualification"), "")
-            if (placement := schedule_placement_finding(qualification)) and placement not in kept:
+            if compatible_citations(finding):
+                qualification = next((quote["value"] for quote in finding["evidence"]
+                                      if quote["field"] == "requirement.qualification"), "")
+                if placement := schedule_placement_finding(qualification):
+                    placements.append(placement)
+            elif (fields and finding.get("recommendation_source") == "rule" and finding["topic"] == "requirements"
+                  and any(quote["field"] == "requirement.experience" for quote in finding["evidence"])):
+                if revised := experience_finding(fields):
+                    kept.append({**revised, "recommendation_source": "rule"})
+            else:
+                kept.append(finding)
+        for placement in placements:
+            if placement not in kept:
                 kept.append(placement)
-        row["findings"] = kept
-        changed = True
+        if kept != findings:
+            row["findings"] = kept
+            changed = True
     return changed
