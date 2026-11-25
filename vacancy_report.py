@@ -33,8 +33,9 @@ def arguments():
 def generate_report(config, mode, output, local_vacancies=None, progress=None, before_work=None,
                     *, needs_refill=None, archived_ids=()):
     model, chat = ollama_chat(config)
+    stream_api = mode == "api" and before_work is not None
     if progress:
-        progress("loading", 0, None)
+        progress("searching" if stream_api else "loading", 0, None)
     rows = []
     skip_ids = set(archived_ids)
     saved_revision = None
@@ -59,18 +60,23 @@ def generate_report(config, mode, output, local_vacancies=None, progress=None, b
         if not needs_refill(rows):
             return False
     initial_count = len(rows)
-    if mode == "api" and before_work:
+    if stream_api:
         vacancies = []
 
+        def search_progress(scanned):
+            progress("searching", checked_count, None, scanned=scanned)
+
         def incoming():
-            for batch in remote_batches(config["api"], before_work, refill=needs_refill is not None):
+            for batch in remote_batches(config["api"], before_work, refill=needs_refill is not None,
+                                        on_scan=search_progress if progress else None):
                 if needs_refill is not None and not needs_refill(rows):
                     break
                 batch = [vacancy for vacancy in batch if vacancy["id"] not in skip_ids]
                 if not batch:
                     continue
                 vacancies.extend(batch)
-                progress("checking", checked_count, None, vacancies)
+                if progress:
+                    progress("checking", checked_count, None, vacancies)
                 yield from batch
                 if needs_refill is not None and not needs_refill(rows):
                     break
@@ -92,7 +98,7 @@ def generate_report(config, mode, output, local_vacancies=None, progress=None, b
             before_work()
         if needs_refill is not None and not needs_refill(rows):
             break
-        total = None if mode == "api" and before_work else len(vacancies)
+        total = None if stream_api else len(vacancies)
         if progress:
             progress("checking", index - 1, total, processing=vacancy["id"])
         vacancy_id = vacancy["id"]

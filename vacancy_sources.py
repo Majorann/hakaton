@@ -106,7 +106,7 @@ def available_count(data):
     return None
 
 
-def remote_batches(settings, before_work=None, *, refill=False):
+def remote_batches(settings, before_work=None, *, refill=False, on_scan=None):
     maximum = positive_int(settings, "max_vacancies", maximum=MAX_VACANCIES)
     page_size = positive_int(settings, "page_size", maximum=100)
     if not refill:
@@ -123,6 +123,8 @@ def remote_batches(settings, before_work=None, *, refill=False):
             raise ReportError("API «Работа России»: достигнут предел числа страниц за запуск.")
         if before_work:
             before_work()
+        if on_scan:
+            on_scan(scanned)
         label = f"API «Работа России», страница {page + 1}"
         data = request_json(page_url(settings["url"], page, page_size), label, timeout)
         try:
@@ -137,6 +139,9 @@ def remote_batches(settings, before_work=None, *, refill=False):
         if page_ids == previous_ids:
             raise ReportError(f"{label}: API повторил предыдущую страницу")
         previous_ids = page_ids
+        scanned += len(entries)
+        if on_scan:
+            on_scan(scanned)
         batch = []
         for vacancy in entries:
             if vacancy["id"] not in vacancies:
@@ -147,7 +152,6 @@ def remote_batches(settings, before_work=None, *, refill=False):
         if batch:
             yield batch
 
-        scanned += len(entries)
         total = available_count(data)
         if len(entries) < page_size or (total is not None and scanned >= total):
             break

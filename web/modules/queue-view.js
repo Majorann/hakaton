@@ -7,7 +7,7 @@ function renderQueue() {
   const active = state?.active;
   const job = state?.jobs[active ?? mode];
   const rows = job?.vacancies ?? [];
-  byId("queue-empty").hidden = Boolean(rows.length);
+  byId("queue-empty").hidden = Boolean(rows.length || (active && job?.stage === "searching"));
   const key = rows.length ? JSON.stringify([active, rows, job.current, job.processing, job.stage]) : "";
   if (key === queueKey) return;
   queueKey = key;
@@ -97,6 +97,8 @@ export function renderNotice() {
       message = `${label} · Автопоток на паузе`;
     } else if (!activeJob.enabled && activeJob.stage !== "saving") {
       message = `${label} · Завершает текущую проверку…`;
+    } else if (activeJob.stage === "searching") {
+      message = `Ищем подходящие вакансии… Просмотрено на портале: ${countFormat.format(activeJob.scanned)}.`;
     } else if (activeJob.stage === "checking") {
       const total = activeJob.total === null ? "" : ` из ${activeJob.total}`;
       message = `${label} · Проверено ${activeJob.current}${total}`;
@@ -112,8 +114,9 @@ export function renderNotice() {
     const rows = reportCache.get("api")?.data.vacancies ?? [];
     const count = Math.min(state.queue_limit, reviewRows(rows, "api").length);
     message = `В очереди на разбор ${countFormat.format(count)} из ${countFormat.format(state.queue_limit)}.`;
+    if (job?.shortage && job.current === 0) message += " Новых вакансий для проверки не найдено.";
     if (state.auto_refill && state.refill_at) message += " Автопоток продолжит поиск.";
-    else if (!state.auto_refill && job?.shortage && count < state.queue_limit) message += " В выборке не хватило подходящих вакансий.";
+    else if (!state.auto_refill && job?.shortage && job.current > 0 && count < state.queue_limit) message += " В выборке не хватило подходящих вакансий.";
   } else if (!message && !state) {
     message = "Проверяем доступность отчётов…";
   }

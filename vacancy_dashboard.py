@@ -332,7 +332,8 @@ class Dashboard:
                 self.refill_at = None
             self.active = mode
             self.jobs[mode] = {
-                "status": "running", "stage": "loading", "current": 0, "total": None,
+                "status": "running", "stage": "searching" if mode == "api" else "loading",
+                "current": 0, "total": None, "scanned": 0,
                 "enabled": True, "paused": False, "results": [],
                 "vacancies": [], "cached": 0, "new_with_findings": 0, "failed": 0,
             }
@@ -383,12 +384,14 @@ class Dashboard:
                 ) < self.preferences["max_vacancies"]
 
         def progress(next_stage, current, total, vacancies=None, processing=None, result=None, cache_hit=False,
-                     failure=None):
+                     failure=None, *, scanned=None):
             nonlocal stage
             stage = next_stage
             with self.lock:
                 job = self.jobs[mode]
                 job.update(stage=stage, current=current, total=total, processing=processing)
+                if scanned is not None:
+                    job["scanned"] = scanned
                 if failure is not None:
                     job["failed"] += 1
                     for row in job["vacancies"]:
