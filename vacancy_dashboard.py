@@ -47,11 +47,20 @@ class Dashboard:
         self.preferences = editable_settings(config)
         self.active = None
         self.jobs = {}
-        self.followup_running = False
+        self.running_archive_model = None  # Empty string uses the main agent. None means idle.
+        self.followup_retry_at = 0
         self.editor_check = False
         self.auto_refill = False
         self.refill_at = None
         self.stopped = False
+
+    def followup_blocks_main(self):
+        return self.running_archive_model is not None and not (
+            self.running_archive_model and self.preferences["archive_model"]
+        )
+
+    def main_busy(self):
+        return self.active is not None or self.editor_check or self.followup_blocks_main()
 
     def state(self):
         revisions = {}
@@ -75,7 +84,8 @@ class Dashboard:
                 "reminder_hours": self.preferences["reminder_hours"],
                 "followup_enabled": self.preferences["followup_enabled"],
                 "followup_minutes": self.preferences["followup_minutes"],
-                "followup_running": self.followup_running,
+                "followup_running": self.running_archive_model is not None,
+                "followup_blocks_main": self.followup_blocks_main(),
                 "editor_check": self.editor_check,
                 "archive_revision": self.archive.revision,
                 "queue_limit": self.preferences["max_vacancies"],
@@ -163,7 +173,7 @@ class Dashboard:
             raise ReportError("Не удалось прочитать решение редактора.")
         path = self.reports[mode]
         with self.lock:
-            if self.active is not None or self.editor_check or self.followup_running:
+            if self.main_busy():
                 raise ReportError("Дождитесь окончания текущей проверки.")
             with path.open(encoding="utf-8") as report:
                 revision = report_revision(fstat(report.fileno()))
@@ -249,45 +259,63 @@ class Dashboard:
             self.lock.notify_all()
             return entry
 
-    def run_followups(self):
+    def run_scheduler(self):
         while True:
             with self.lock:
                 if self.stopped:
                     return
-                if self.active is not None or self.editor_check:
-                    self.lock.wait()
-                    continue
-                minutes = self.preferences["followup_minutes"]
-                pending = (entry for entry in self.archive.entries
-                           if self.preferences["followup_enabled"] and entry["status"] in PENDING_STATUSES)
-                entry = min(pending, key=lambda row: next_check(row, minutes), default=None)
                 now = time()
-                followup_at = next_check(entry, minutes) if entry else None
-                if followup_at is None or followup_at > now:
-                    if self.refill_at is not None and self.refill_at <= now:
+                wake_at = self.schedule_followup(now)
+                if self.refill_at is not None and not self.main_busy():
+                    if self.refill_at <= now:
                         self.start("api", None)
-                    else:
-                        wake_at = min((due for due in (followup_at, self.refill_at) if due is not None), default=None)
-                        self.lock.wait(None if wake_at is None else max(0, wake_at - now))
-                    continue
-                self.followup_running = True
+                        continue
+                    wake_at = self.refill_at if wake_at is None else min(wake_at, self.refill_at)
+                self.lock.wait(None if wake_at is None else max(0, wake_at - time()))
+
+    def schedule_followup(self, now):
+        archive_model = self.preferences["archive_model"]
+        if (not self.preferences["followup_enabled"] or self.running_archive_model is not None
+                or (not archive_model and self.main_busy())):
+            return None
+        minutes = self.preferences["followup_minutes"]
+        pending = (entry for entry in self.archive.entries if entry["status"] in PENDING_STATUSES)
+        entry = min(pending, key=lambda entry: next_check(entry, minutes), default=None)
+        if entry is None:
+            return None
+        due = max(next_check(entry, minutes), self.followup_retry_at)
+        if due > now:
+            return due
+        self.running_archive_model = archive_model
+        try:
+            Thread(target=self.run_followup, args=(entry, archive_model), daemon=True).start()
+        except RuntimeError:
+            logging.exception("Не удалось запустить повторную проверку вакансии %s", entry["original"]["id"])
+            self.running_archive_model = None
+            self.followup_retry_at = now + 60
+            return self.followup_retry_at
+        return None
+
+    def run_followup(self, entry, archive_model):
+        try:
+            config = read_config(self.config_path)
+            config["ollama"]["archive_model"] = archive_model
+            result = follow_up(entry, config)
+        except (ReportError, OSError, ValueError, KeyError, TypeError) as error:
+            logging.warning("Повторная проверка вакансии %s: %s", entry["original"]["id"], error)
+            result = {**entry, "attempted_at": time(), "error": str(error)}
+        except Exception:
+            logging.exception("Ошибка повторной проверки вакансии %s", entry["original"]["id"])
+            result = {**entry, "attempted_at": time(), "error": "Подробности в консоли локальной программы."}
+        with self.lock:
             try:
-                config = read_config(self.config_path)
-                result = follow_up(entry, config)
-            except (ReportError, OSError, ValueError, KeyError, TypeError) as error:
-                logging.warning("Повторная проверка вакансии %s: %s", entry["original"]["id"], error)
-                result = {**entry, "attempted_at": time(), "error": str(error)}
-            except Exception:
-                logging.exception("Ошибка повторной проверки вакансии %s", entry["original"]["id"])
-                result = {**entry, "attempted_at": time(), "error": "Подробности в консоли локальной программы."}
-            with self.lock:
-                self.followup_running = False
-                try:
-                    self.archive.update(result)
-                except OSError as error:
-                    logging.error("Не удалось сохранить архив вакансий: %s", error)
-                    if not self.stopped:
-                        self.lock.wait(60)
+                self.archive.update(result)
+            except OSError as error:
+                logging.error("Не удалось сохранить архив вакансий: %s", error)
+                self.followup_retry_at = time() + 60
+            finally:
+                self.running_archive_model = None
+                self.lock.notify_all()
 
     def stop(self):
         with self.lock:
@@ -296,7 +324,7 @@ class Dashboard:
 
     def start(self, mode, upload, *, autoflow=False):
         with self.lock:
-            if self.active is not None or self.followup_running or self.editor_check:
+            if self.main_busy():
                 return False
             if mode == "api":
                 if autoflow:

@@ -196,7 +196,7 @@ def main():
             token = token_urlsafe(32)
             server.authorization = f"Bearer {token}".encode("ascii")
             print(f"http://127.0.0.1:{server.server_port}/#access={token}", flush=True)
-            Thread(target=dashboard.run_followups, daemon=True).start()
+            Thread(target=dashboard.run_scheduler, daemon=True).start()
             try:
                 server.serve_forever()
             finally:

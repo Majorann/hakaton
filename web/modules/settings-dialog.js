@@ -30,8 +30,10 @@ export function bindSettingsDialog(refresh) {
       : available.length
         ? ""
         : "Ollama не сообщила ни об одной установленной локальной модели.";
-    byId("settings-archive-note").textContent = ["При выборе «Нет» архив использует текущую основную модель.", availability]
-      .filter(Boolean).join(" ");
+    byId("settings-archive-note").textContent = [
+      "С выбранной моделью архив и основная очередь запускаются параллельно. При выборе «Нет» они работают по очереди.",
+      availability,
+    ].filter(Boolean).join(" ");
   }
 
   followupSetting.addEventListener("change", showFollowupSettings);

@@ -62,11 +62,11 @@ export function renderNotice() {
   const activeJob = state?.jobs[state.active];
   const auto = byId("auto-check");
   const autoEnabled = Boolean(state?.active === "file" ? activeJob.enabled : state?.auto_refill);
-  const unavailable = Boolean(busy || state?.followup_running || state?.editor_check) || !state || Boolean(connectionError);
+  const unavailable = Boolean(busy || state?.followup_blocks_main || state?.editor_check) || !state || Boolean(connectionError);
   auto.setAttribute("aria-checked", String(autoEnabled));
   byId("run-api").disabled = unavailable || autoEnabled;
   byId("choose-file").disabled = unavailable;
-  auto.disabled = !state || Boolean(connectionError) || Boolean(starting || state?.followup_running || state?.editor_check) || changingAuto;
+  auto.disabled = !state || Boolean(connectionError) || Boolean(starting || state?.followup_blocks_main || state?.editor_check) || changingAuto;
   const queueControl = byId("queue-control");
   const notice = byId("notice");
   const job = state?.jobs[mode];
@@ -88,6 +88,7 @@ export function renderNotice() {
     if (mode === "api" && state?.auto_refill && state.refill_at) message += " Поиск повторится автоматически.";
     isError = true;
   }
+  const archiveChecking = !isError && state?.followup_running;
   if (!message && busy) {
     const label = modes[busy].label;
     if (activeJob?.status !== "running") {
@@ -107,9 +108,7 @@ export function renderNotice() {
     }
   } else if (!message && state?.editor_check) {
     message = "Qwen перепроверяет карточку по отметке редактора…";
-  } else if (!message && state?.followup_running) {
-    message = "Проверяем исправления в архиве…";
-  } else if (!message && mode === "api" && (state?.auto_refill || job?.status === "success")) {
+  } else if (!message && !archiveChecking && mode === "api" && (state?.auto_refill || job?.status === "success")) {
     const rows = reportCache.get("api")?.data.vacancies ?? [];
     const count = Math.min(state.queue_limit, reviewRows(rows, "api").length);
     message = `В очереди на разбор ${countFormat.format(count)} из ${countFormat.format(state.queue_limit)}.`;
@@ -118,6 +117,7 @@ export function renderNotice() {
   } else if (!message && !state) {
     message = "Проверяем доступность отчётов…";
   }
+  if (archiveChecking) message = [message, "Проверяем исправления в архиве…"].filter(Boolean).join(" · ");
   if (summary && !isError) message = [message, summary].filter(Boolean).join(" ");
   const savedErrors = reportCache.get(mode)?.data.errors?.length;
   if (!busy && !summary && !isError && savedErrors) {

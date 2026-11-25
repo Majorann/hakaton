@@ -101,11 +101,20 @@ function Read-LocalJson($url, $headers = @{}, $timeout = 2, $body) {
     }
 }
 
-function Ensure-Ollama($ollama) {
+function Ensure-Ollama($ollama, $parallelArchive) {
     if ((Read-LocalJson "$ollamaUri/api/version").version) { return }
     if (!$ollama) { throw 'Ollama недоступна. Запустите setup.bat для установки.' }
     Write-Host 'Запускаем Ollama…'
-    Start-Process -FilePath $ollama -ArgumentList 'serve' -WindowStyle Hidden -RedirectStandardError (Join-Path $runtime 'ollama.log')
+    $numParallel = $env:OLLAMA_NUM_PARALLEL
+    $maxLoadedModels = $env:OLLAMA_MAX_LOADED_MODELS
+    try {
+        if ($parallelArchive -and !$numParallel) { $env:OLLAMA_NUM_PARALLEL = '2' }
+        if ($parallelArchive -and !$maxLoadedModels) { $env:OLLAMA_MAX_LOADED_MODELS = '2' }
+        Start-Process -FilePath $ollama -ArgumentList 'serve' -WindowStyle Hidden -RedirectStandardError (Join-Path $runtime 'ollama.log')
+    } finally {
+        $env:OLLAMA_NUM_PARALLEL = $numParallel
+        $env:OLLAMA_MAX_LOADED_MODELS = $maxLoadedModels
+    }
     $deadline = [datetime]::UtcNow.AddSeconds(45)
     do {
         if ((Read-LocalJson "$ollamaUri/api/version").version) { return }
@@ -134,7 +143,17 @@ function Install-Model($ollama, $model) {
 }
 
 function Get-ProjectSettings($python) {
-    $code = 'import json; from vacancy_report import DEFAULT_CONFIG, read_config, report_path; c=read_config(DEFAULT_CONFIG); print(json.dumps({"model":c["ollama"]["model"],"output":str(report_path(c, DEFAULT_CONFIG, "file").resolve())}))'
+    $code = @'
+import json
+from vacancy_report import DEFAULT_CONFIG, read_config, report_path
+
+config = read_config(DEFAULT_CONFIG)
+print(json.dumps({
+    "model": config["ollama"]["model"],
+    "output": str(report_path(config, DEFAULT_CONFIG, "file").resolve()),
+    "parallel_archive": bool(config.get("web", {}).get("followup_enabled") and config["ollama"].get("archive_model")),
+}))
+'@
     Push-Location -LiteralPath $project
     try {
         $result = $code | & $python -X utf8 -
@@ -240,7 +259,7 @@ try {
         catch [Threading.AbandonedMutexException] { $locked = $true }
         if (!$locked) { throw 'Дождитесь завершения настройки в другом окне и повторите запуск.' }
         try {
-            Ensure-Ollama $ollama
+            Ensure-Ollama $ollama $settings.parallel_archive
             if ($Mode -eq 'Setup') {
                 Write-Host 'Ollama доступна.'
                 Write-Host "1. Использовать $defaultModel (скачать при необходимости)"

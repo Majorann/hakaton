@@ -127,7 +127,7 @@ function renderEditorReview(row, entry, editorBusy) {
 
 export function renderDetail(row, entry) {
   const { mode, state } = dashboard;
-  const editorBusy = Boolean(dashboard.editorSubmitting || state?.active || state?.followup_running || state?.editor_check);
+  const editorBusy = Boolean(dashboard.editorSubmitting || state?.active || state?.followup_blocks_main || state?.editor_check);
   const key = JSON.stringify([mode, row, entry, editorBusy, state?.followup_enabled, state?.followup_minutes]);
   if (key === shownDetail) return;
   const preserveHistory = entry?.key && dashboard.detailRow?.entry?.key === entry.key;
